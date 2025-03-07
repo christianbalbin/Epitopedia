@@ -377,7 +377,7 @@ CREATE INDEX idx_target ON EPI_PDB(target);"""
         paths = glob.glob("/app/mmcif/*/*.cif")
         if args.use_afdb:
             paths += glob.glob("/app/afdb/*.cif")
-        with Pool(12) as p:
+        with Pool(os.cpu_count()) as p:
             data = list(
                 track(
                     p.imap(runDSSP, paths, chunksize=1024),
@@ -391,7 +391,7 @@ CREATE INDEX idx_target ON EPI_PDB(target);"""
         from epitopedia.data.config import epitopedia_con
 
         dssp_files = glob.glob("/app/data/dssp/*")
-        with Pool(12) as p:
+        with Pool(os.cpu_count()) as p:
 
             data = list(
                 track(

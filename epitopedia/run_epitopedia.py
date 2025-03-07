@@ -98,7 +98,7 @@ def main():
                 query_pdb_chain=query_pdb_chain,
                 pdb_input_str=pdb_input_str,
             )
-            with Pool(12) as p:
+            with Pool(os.cpu_count()) as p:
                 data = list(
                     track(
                         p.imap(parseHitP, hits),

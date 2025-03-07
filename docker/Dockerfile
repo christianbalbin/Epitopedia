@@ -1,9 +1,12 @@
-FROM ubuntu:20.04
+FROM ubuntu:24.04
 
 ENV LISTEN_PORT=5000
 EXPOSE 5000
 
 ARG DEBIAN_FRONTEND=noninteractive
+# Use BuildKit's built-in ARGs
+ARG TARGETARCH
+ARG TARGETPLATFORM
 
 RUN apt-get -y update && apt-get install -y \
     build-essential \
@@ -26,14 +29,14 @@ RUN apt-get -y update && apt-get install -y \
     libnet-perl \
     golang \
     checkinstall \
-    libreadline-gplv2-dev \
+    libreadline-dev \
     libncursesw5-dev \
     libsqlite3-dev \
     tk-dev \
     libgdbm-dev \
     libc6-dev \
     dpkg-dev \
-    python-dev \
+    # python-dev \
     python3-dev \
     libncursesw5-dev \
     libffi-dev \
@@ -54,9 +57,9 @@ RUN apt-get -y update && apt-get install -y \
 
 WORKDIR /app
 
-RUN wget https://www.python.org/ftp/python/3.9.7/Python-3.9.7.tgz ;\
-    tar -xzvf Python-3.9.7.tgz
-WORKDIR /app/Python-3.9.7
+RUN wget https://www.python.org/ftp/python/3.13.2/Python-3.13.2.tgz ;\
+    tar -xzvf Python-3.13.2.tgz
+WORKDIR /app/Python-3.13.2
 RUN ./configure --enable-optimizations --with-lto ;\
     make ;\
     make test ;\
@@ -64,20 +67,45 @@ RUN ./configure --enable-optimizations --with-lto ;\
 
 WORKDIR /app
 
-RUN pip3.9 install flask gemmi biopython rich dataclasses-json scipy numpy seaborn
+RUN pip3.13 install flask gemmi biopython rich dataclasses-json scipy numpy seaborn
+
 
 # Get blast
-RUN wget "https://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/LATEST/ncbi-blast-2.12.0+-x64-linux.tar.gz" ;\
-    tar -zxvf ncbi-blast-2.12.0+-x64-linux.tar.gz
+RUN set -eux; \
+    if [ "$TARGETPLATFORM" = "linux/amd64" ]; then \
+        echo "Installing x64 binaries" ; \
+        wget "https://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/2.16.0/ncbi-blast-2.16.0+-x64-linux.tar.gz"; \
+        tar -zxvf ncbi-blast-2.16.0+-x64-linux.tar.gz; \
+    elif [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
+        echo "Installing ARM64 binaries" ; \
+        wget "https://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/2.16.0/ncbi-blast-2.16.0+-aarch64-linux.tar.gz"; \
+        tar -zxvf ncbi-blast-2.16.0+-aarch64-linux.tar.gz; \
+    else \
+        echo "Unsupported architecture: $TARGETPLATFORM" ; \
+        exit 1 ; \
+    fi
 
 
+# Get blast
+# RUN wget "https://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/LATEST/ncbi-blast-2.16.0+-x64-linux.tar.gz" ;\
+#     tar -zxvf ncbi-blast-2.16.0+-x64-linux.tar.gz
+
+
+# RUN wget "https://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/2.16.0/ncbi-blast-2.16.0+-src.tar.gz" ;\
+#     tar -zxvf ncbi-blast-2.16.0+-src.tar.gz
+# WORKDIR /app/ncbi-blast-2.16.0+-src/c++
+# RUN ./configure ;\
+#     make ;\
+#     make install
+# WORKDIR /app 
+# RUN rm -r ncbi-blast-2.16.0+-src.tar.gz
 
 # build DSSP
 RUN wget "https://github.com/cmbi/dssp/archive/refs/tags/2.3.0.tar.gz" ;\
     tar -zxvf 2.3.0.tar.gz
 WORKDIR /app/dssp-2.3.0
 RUN ./autogen.sh ;\
-    ./configure ;\
+    ./configure CXXFLAGS="-std=c++14" ;\
     make ;\
     make install
 WORKDIR /app
@@ -95,9 +123,23 @@ RUN wget "https://raw.githubusercontent.com/dumblob/mysql2sqlite/d14d22ad7029cdf
     mv mysql2sqlite /usr/local/bin
 
 # get mmseqs2
-RUN wget https://mmseqs.com/latest/mmseqs-linux-avx2.tar.gz ;\
-    tar xvfz mmseqs-linux-avx2.tar.gz ;\
-    rm mmseqs-linux-avx2.tar.gz
+
+RUN set -eux; \
+    if [ "$TARGETPLATFORM" = "linux/amd64" ]; then \
+        echo "Installing x64 binaries" ; \
+        wget "https://mmseqs.com/latest/mmseqs-linux-avx2.tar.gz"; \
+        tar -zxvf mmseqs-linux-avx2.tar.gz; \
+    elif [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
+        echo "Installing ARM64 binaries" ; \
+        wget "https://dev.mmseqs.com/latest/mmseqs-linux-arm64.tar.gz"; \
+        tar -zxvf mmseqs-linux-arm64.tar.gz; \
+    else \
+        echo "Unsupported architecture: $TARGETPLATFORM" ; \
+        exit 1 ; \
+    fi
+# RUN wget https://mmseqs.com/latest/mmseqs-linux-avx2.tar.gz ;\
+#     tar xvfz mmseqs-linux-avx2.tar.gz ;\
+#     rm mmseqs-linux-avx2.tar.gz
 
 
 RUN curl -s "ftp://ftp.ncbi.nlm.nih.gov/entrez/entrezdirect/edirect.tar.gz" -o "edirect.tar.gz" ;\
@@ -119,11 +161,14 @@ RUN wget ftp.ncbi.nlm.nih.gov/entrez/entrezdirect/xtract.Linux.gz ;\
 WORKDIR /app
 COPY . /app
 
-RUN python3.9 setup.py build ;python3.9 setup.py install
+
+RUN python3.13 -m ensurepip && \
+    python3.13 -m pip install --upgrade pip setuptools
+RUN python3.13 setup.py build ;python3.13 setup.py install
 # RUN python3.10 setup.py develop
 # RUN chmod +x docker/run_epitopedia.py ; chmod +x docker/generate_database.py
 
-ENV PATH=/app/edirect:/app/mmseqs/bin/:/app/ncbi-blast-2.12.0+/bin:/app/:$PATH
+ENV PATH=/app/edirect:/app/mmseqs/bin/:/app/ncbi-blast-2.16.0+/bin:/app/:$PATH
 
 ENV FLASK_DEBUG=false
 ENV FLASK_APP=/app/epitopedia/viz/serve.py
